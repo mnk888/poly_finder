@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstring>
+#include <cstdint> // Для uint8_t, uint16_t
 
-// BIP-39 wordlist (первые несколько слов для примера)
 const char* bip39_wordlist[2048] = {
     "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse",
     "access", "accident", "account", "accuse",  "achieve",  "acid",  "acoustic",  "acquire", "across", "act",
@@ -159,6 +159,10 @@ const char* bip39_wordlist[2048] = {
     "young", "youth", "zebra", "zero", "zone", "zoo"
 };
 
+
+// Объявляем device-копию wordlist
+__constant__ const char* d_bip39_wordlist[2048];
+
 // Реализация strcmp для device-кода
 __device__ int my_strcmp(const char* str1, const char* str2) {
     while (*str1 && (*str1 == *str2)) {
@@ -188,7 +192,7 @@ __device__ void my_strcat(char* dest, const char* src) {
 // Функция для получения индекса слова в BIP-39 wordlist
 __device__ uint16_t get_word_index(const char* word) {
     for (int i = 0; i < 2048; i++) {
-        if (my_strcmp(word, bip39_wordlist[i]) == 0) {
+        if (my_strcmp(word, d_bip39_wordlist[i]) == 0) {
             return i;
         }
     }
@@ -292,20 +296,25 @@ int main() {
     // Пример использования
     const char* known_words = "word1 word2 word3 word4";
     const int wordlist_size = 2048;
-    char* d_wordlist;
+    const char** d_wordlist;
     char* d_result;
     char h_result[256] = {0};
 
-    // Копируем wordlist и результат в device-память
+    // Копируем wordlist в device-память
     cudaMalloc((void**)&d_wordlist, wordlist_size * sizeof(char*));
     cudaMemcpy(d_wordlist, bip39_wordlist, wordlist_size * sizeof(char*), cudaMemcpyHostToDevice);
 
+    // Копируем wordlist в __constant__ память
+    cudaMemcpyToSymbol(d_bip39_wordlist, bip39_wordlist, sizeof(bip39_wordlist));
+
+    // Выделяем память для результата
     cudaMalloc((void**)&d_result, 256);
     cudaMemset(d_result, 0, 256);
 
     // Запуск ядра CUDA
     int threads_per_block = 256;
-    int blocks_per_grid = (wordlist_size * wordlist_size * wordlist_size * wordlist_size + threads_per_block - 1) / threads_per_block;
+    size_t total_combinations = static_cast<size_t>(wordlist_size) * wordlist_size * wordlist_size * wordlist_size;
+    int blocks_per_grid = (total_combinations + threads_per_block - 1) / threads_per_block;
     check_combinations<<<blocks_per_grid, threads_per_block>>>(d_wordlist, wordlist_size, known_words, strlen(known_words), d_result);
 
     // Копируем результат обратно на CPU
