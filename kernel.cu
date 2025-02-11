@@ -189,6 +189,15 @@ __device__ void my_strcat(char* dest, const char* src) {
     *dest = '\0';
 }
 
+// Реализация strchr для device-кода
+__device__ char* my_strchr(const char* str, char c) {
+    while (*str) {
+        if (*str == c) return (char*)str;
+        str++;
+    }
+    return nullptr;
+}
+
 // Функция для получения индекса слова в BIP-39 wordlist
 __device__ uint16_t get_word_index(const char* word) {
     for (int i = 0; i < 2048; i++) {
@@ -210,7 +219,7 @@ __device__ bool is_valid_phrase(const char* phrase) {
     // Реализация strtok для device-кода
     char* token = temp_phrase;
     for (int i = 0; i < 12; i++) {
-        char* space = strchr(token, ' ');
+        char* space = my_strchr(token, ' ');
         if (space) {
             *space = '\0';
             my_strcpy(words[word_count], token);
@@ -297,6 +306,7 @@ int main() {
     const char* known_words = "word1 word2 word3 word4";
     const int wordlist_size = 2048;
     const char** d_wordlist;
+    char* d_known_words;
     char* d_result;
     char h_result[256] = {0};
 
@@ -307,6 +317,10 @@ int main() {
     // Копируем wordlist в __constant__ память
     cudaMemcpyToSymbol(d_bip39_wordlist, bip39_wordlist, sizeof(bip39_wordlist));
 
+    // Копируем known_words в device-память
+    cudaMalloc((void**)&d_known_words, strlen(known_words) + 1);
+    cudaMemcpy(d_known_words, known_words, strlen(known_words) + 1, cudaMemcpyHostToDevice);
+
     // Выделяем память для результата
     cudaMalloc((void**)&d_result, 256);
     cudaMemset(d_result, 0, 256);
@@ -315,7 +329,7 @@ int main() {
     int threads_per_block = 256;
     size_t total_combinations = static_cast<size_t>(wordlist_size) * wordlist_size * wordlist_size * wordlist_size;
     int blocks_per_grid = (total_combinations + threads_per_block - 1) / threads_per_block;
-    check_combinations<<<blocks_per_grid, threads_per_block>>>(d_wordlist, wordlist_size, known_words, strlen(known_words), d_result);
+    check_combinations<<<blocks_per_grid, threads_per_block>>>(d_wordlist, wordlist_size, d_known_words, strlen(known_words), d_result);
 
     // Копируем результат обратно на CPU
     cudaMemcpy(h_result, d_result, 256, cudaMemcpyDeviceToHost);
@@ -324,6 +338,7 @@ int main() {
 
     // Освобождаем память
     cudaFree(d_wordlist);
+    cudaFree(d_known_words);
     cudaFree(d_result);
 
     return 0;
