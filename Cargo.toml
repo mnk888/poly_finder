@@ -1,0 +1,24 @@
+[package]
+name = "cuda_finder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.5"
+bip39 = "1.2"
+ctrlc = "3.2"
+indicatif = "0.16"
+anychain-tron = "0.2.8" 
+rustacuda = "0.1.3"     
+rustacuda_core = "0.1.2" 
+rustacuda_derive = "0.1.2" 
+num_cpus = "1.13"
+secp256k1 = "0.24"
+sha3 = "0.10"
+reqwest = { version = "0.11", features = ["json"] }
+serde_json = "1.0"
+base58 = "0.2"
+log = "0.4"
+env_logger = "0.9"
+rand = "0.9"
+crossbeam = "0.8"
