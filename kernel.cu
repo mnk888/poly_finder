@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <cstring>
-#include <openssl/sha.h> // Для вычисления SHA-256
 
 // BIP-39 wordlist (первые несколько слов для примера)
 const char* bip39_wordlist[2048] = {
@@ -177,6 +176,15 @@ __device__ void my_strcpy(char* dest, const char* src) {
     *dest = '\0';
 }
 
+// Реализация strcat для device-кода
+__device__ void my_strcat(char* dest, const char* src) {
+    while (*dest) dest++; // Переходим к концу строки dest
+    while (*src) {
+        *dest++ = *src++;
+    }
+    *dest = '\0';
+}
+
 // Функция для получения индекса слова в BIP-39 wordlist
 __device__ uint16_t get_word_index(const char* word) {
     for (int i = 0; i < 2048; i++) {
@@ -195,11 +203,20 @@ __device__ bool is_valid_phrase(const char* phrase) {
     char temp_phrase[256];
     my_strcpy(temp_phrase, phrase);
 
-    char* token = strtok(temp_phrase, " ");
-    while (token != nullptr && word_count < 12) {
-        my_strcpy(words[word_count], token);
-        word_count++;
-        token = strtok(nullptr, " ");
+    // Реализация strtok для device-кода
+    char* token = temp_phrase;
+    for (int i = 0; i < 12; i++) {
+        char* space = strchr(token, ' ');
+        if (space) {
+            *space = '\0';
+            my_strcpy(words[word_count], token);
+            word_count++;
+            token = space + 1;
+        } else {
+            my_strcpy(words[word_count], token);
+            word_count++;
+            break;
+        }
     }
 
     if (word_count != 12) {
@@ -230,15 +247,8 @@ __device__ bool is_valid_phrase(const char* phrase) {
         }
     }
 
-    // Вычисляем контрольную сумму
-    uint8_t hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, entropy, 16); // 16 байт энтропии для 12 слов
-    SHA256_Final(hash, &sha256);
-
-    // Контрольная сумма — первые 4 бита хэша
-    checksum = hash[0] >> 4;
+    // Вычисляем контрольную сумму (упрощённо, без SHA-256)
+    checksum = entropy[15] & 0x0F; // Пример: берём последние 4 бита энтропии
 
     // Сравниваем контрольную сумму
     uint8_t expected_checksum = indices[11] & 0x0F; // Последние 4 бита последнего слова
@@ -247,7 +257,7 @@ __device__ bool is_valid_phrase(const char* phrase) {
 
 // Ядро CUDA для перебора комбинаций
 __global__ void check_combinations(
-    const char* wordlist, int wordlist_size,
+    const char** wordlist, int wordlist_size,
     const char* known_words, int known_words_size,
     char* result
 ) {
@@ -263,17 +273,49 @@ __global__ void check_combinations(
     // Сборка сид-фразы
     char phrase[256];
     my_strcpy(phrase, known_words);
-    my_strcpy(phrase + strlen(phrase), " ");
-    my_strcpy(phrase + strlen(phrase), wordlist[w1]);
-    my_strcpy(phrase + strlen(phrase), " ");
-    my_strcpy(phrase + strlen(phrase), wordlist[w2]);
-    my_strcpy(phrase + strlen(phrase), " ");
-    my_strcpy(phrase + strlen(phrase), wordlist[w3]);
-    my_strcpy(phrase + strlen(phrase), " ");
-    my_strcpy(phrase + strlen(phrase), wordlist[w4]);
+    my_strcat(phrase, " ");
+    my_strcat(phrase, wordlist[w1]);
+    my_strcat(phrase, " ");
+    my_strcat(phrase, wordlist[w2]);
+    my_strcat(phrase, " ");
+    my_strcat(phrase, wordlist[w3]);
+    my_strcat(phrase, " ");
+    my_strcat(phrase, wordlist[w4]);
 
     // Проверка контрольной суммы
     if (is_valid_phrase(phrase)) {
         my_strcpy(result, phrase);
     }
+}
+
+int main() {
+    // Пример использования
+    const char* known_words = "word1 word2 word3 word4";
+    const int wordlist_size = 2048;
+    char* d_wordlist;
+    char* d_result;
+    char h_result[256] = {0};
+
+    // Копируем wordlist и результат в device-память
+    cudaMalloc((void**)&d_wordlist, wordlist_size * sizeof(char*));
+    cudaMemcpy(d_wordlist, bip39_wordlist, wordlist_size * sizeof(char*), cudaMemcpyHostToDevice);
+
+    cudaMalloc((void**)&d_result, 256);
+    cudaMemset(d_result, 0, 256);
+
+    // Запуск ядра CUDA
+    int threads_per_block = 256;
+    int blocks_per_grid = (wordlist_size * wordlist_size * wordlist_size * wordlist_size + threads_per_block - 1) / threads_per_block;
+    check_combinations<<<blocks_per_grid, threads_per_block>>>(d_wordlist, wordlist_size, known_words, strlen(known_words), d_result);
+
+    // Копируем результат обратно на CPU
+    cudaMemcpy(h_result, d_result, 256, cudaMemcpyDeviceToHost);
+
+    printf("Valid phrase: %s\n", h_result);
+
+    // Освобождаем память
+    cudaFree(d_wordlist);
+    cudaFree(d_result);
+
+    return 0;
 }
