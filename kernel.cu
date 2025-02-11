@@ -2,6 +2,7 @@
 #include <cstring>
 #include <openssl/sha.h> // Для вычисления SHA-256
 
+// BIP-39 wordlist (первые несколько слов для примера)
 const char* bip39_wordlist[2048] = {
     "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse",
     "access", "accident", "account", "accuse",  "achieve",  "acid",  "acoustic",  "acquire", "across", "act",
@@ -159,10 +160,27 @@ const char* bip39_wordlist[2048] = {
     "young", "youth", "zebra", "zero", "zone", "zoo"
 };
 
+// Реализация strcmp для device-кода
+__device__ int my_strcmp(const char* str1, const char* str2) {
+    while (*str1 && (*str1 == *str2)) {
+        str1++;
+        str2++;
+    }
+    return *(const unsigned char*)str1 - *(const unsigned char*)str2;
+}
+
+// Реализация strcpy для device-кода
+__device__ void my_strcpy(char* dest, const char* src) {
+    while (*src) {
+        *dest++ = *src++;
+    }
+    *dest = '\0';
+}
+
 // Функция для получения индекса слова в BIP-39 wordlist
 __device__ uint16_t get_word_index(const char* word) {
     for (int i = 0; i < 2048; i++) {
-        if (strcmp(word, bip39_wordlist[i]) == 0) {
+        if (my_strcmp(word, bip39_wordlist[i]) == 0) {
             return i;
         }
     }
@@ -175,11 +193,11 @@ __device__ bool is_valid_phrase(const char* phrase) {
     char words[12][20]; // Максимальная длина слова — 20 символов
     int word_count = 0;
     char temp_phrase[256];
-    strcpy(temp_phrase, phrase);
+    my_strcpy(temp_phrase, phrase);
 
     char* token = strtok(temp_phrase, " ");
     while (token != nullptr && word_count < 12) {
-        strcpy(words[word_count], token);
+        my_strcpy(words[word_count], token);
         word_count++;
         token = strtok(nullptr, " ");
     }
@@ -244,13 +262,18 @@ __global__ void check_combinations(
 
     // Сборка сид-фразы
     char phrase[256];
-    sprintf(phrase, "%s %s %s %s %s %s %s %s %s %s %s %s",
-            known_words[0], known_words[1], known_words[2], known_words[3],
-            known_words[4], known_words[5], known_words[6], known_words[7],
-            wordlist[w1], wordlist[w2], wordlist[w3], wordlist[w4]);
+    my_strcpy(phrase, known_words);
+    my_strcpy(phrase + strlen(phrase), " ");
+    my_strcpy(phrase + strlen(phrase), wordlist[w1]);
+    my_strcpy(phrase + strlen(phrase), " ");
+    my_strcpy(phrase + strlen(phrase), wordlist[w2]);
+    my_strcpy(phrase + strlen(phrase), " ");
+    my_strcpy(phrase + strlen(phrase), wordlist[w3]);
+    my_strcpy(phrase + strlen(phrase), " ");
+    my_strcpy(phrase + strlen(phrase), wordlist[w4]);
 
     // Проверка контрольной суммы
     if (is_valid_phrase(phrase)) {
-        strcpy(result, phrase);
+        my_strcpy(result, phrase);
     }
 }
